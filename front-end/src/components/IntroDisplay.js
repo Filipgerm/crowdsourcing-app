@@ -87,7 +87,7 @@ class IntroDisplay extends Component {
 
               <h4>Contact information</h4>
               <p>For bug reports or any other information,
-                you may contact us at alex.delitzas@gmail.com or kyrcha@gmail.com.</p>
+                you may contact us at filipgerm@gmail.com or alex.delitzas@gmail.com.</p>
 
               <br />
               <div className="button-to-start">

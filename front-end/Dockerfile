@@ -1,5 +1,5 @@
 # Install node image in container
-FROM node:11.10.1
+FROM node:14
 
 # Create and set the working directory
 RUN mkdir -p /app/client

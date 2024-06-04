@@ -5,7 +5,7 @@ if [ ! -f .env ]; then
   exit 1
 fi
 
-docker-compose -f docker-compose.yml up -d --build
+sudo docker-compose -f docker-compose.yml up -d --build
 
 for i in "$@"
 do
@@ -13,7 +13,7 @@ argument="$i"
 case $argument in
   --create)
     echo "*** Creating comparison pairs with a random order ***"
-    docker exec -w /data/utils server node createComparisonData.js
+    sudo docker exec -w /data/utils server node createComparisonData.js
     ;;
   --sortimages)
     echo "*** Sorting images ***"
@@ -34,7 +34,7 @@ case $argument in
 esac
 done
 
-docker exec -w /data/utils mongo ./createVotesDB.sh
+sudo docker exec -w /data/utils mongo ./createVotesDB.sh
 
 if [ "$restore" = true ] ; then
     echo "*** Restoring database content from backup ***"
@@ -43,7 +43,7 @@ if [ "$restore" = true ] ; then
     docker exec -w /data/utils mongo ./restoreVotesDB.sh ${BACKUPPATH}
 fi
 
-docker-compose down
+sudo docker-compose down
 
 echo
 echo "****************************"

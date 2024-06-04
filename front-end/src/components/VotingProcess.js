@@ -41,8 +41,8 @@ class VotingProcess extends Component {
          this.imageRightIds = res.data.imageRightIds
 
          // DEBUGGING PURPOSES
-         // console.log(this.imageLeftIds + '\n' + this.imageRightIds)
-         // console.log('New vote sessions created: ' + res.data._id)
+          // console.log(this.imageLeftIds + '\n' + this.imageRightIds)
+          // console.log('New vote sessions created: ' + res.data._id)
 
          this.setState({
            _id: res.data._id,
