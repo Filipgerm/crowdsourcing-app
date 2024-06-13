@@ -37,6 +37,7 @@ def optimize_single_batch(initial_params, comparisons_batch):
         method='L-BFGS-B',
         options={'maxiter': 100}  # max iterations 
     )
+    logging.debug(f"Completed optimization batch")
     return result.x
 
 @app.route('/optimize', methods=['POST'])

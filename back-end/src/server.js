@@ -7,8 +7,16 @@ const voteRoutes = express.Router()
 const VoteSession = require('./models/voteSession.js')
 const Comparison = require('./models/comparison.js')
 const Image = require('./models/image.js')
+
 // const fmin = require('fmin');
 // const numeric = require('numeric');
+
+const EventEmitter = require('events');
+const progressEmitter = new EventEmitter();
+const redis = require('redis');
+const Queue = require('bull');
+
+
 
 
 const axios = require('axios'); //library to make HTTP requests
@@ -27,6 +35,9 @@ const timeLimitOfEachComparison = parseInt(process.env.VOTING_TIME) || 8
 
 // number of comparisons that are used for answer quality control
 const answerQualityControls = 2
+
+// Define a global variable to track the number of sessions processed
+let sessionsProcessed = 0;
 
 app.use(cors())
 app.use(bodyParser.json())
@@ -47,9 +58,100 @@ mongoose.connect(mongoURI, { useNewUrlParser: true })
     console.error(err)
   })
 
+// Initialize Redis client
+const redisClient = redis.createClient({
+  host:  'redis', //process.env.REDIS_HOST ||
+  port:  6379 //process.env.REDIS_PORT |  |
+});
+
+  
+const optimizationQueue = new Queue('optimization', {
+  redis: {
+    host: 'redis',
+    port: '6379'
+  }
+});
+
+redisClient.on('connect', () => {
+  console.log('Connected to Redis');
+});
+
+redisClient.on('error', (err) => {
+  console.error('Redis connection error:', err);
+});
+
+
+
+progressEmitter.on('progress', (iterations) => {
+  console.log(`Optimization progress: ${iterations} iterations completed`);
+});
+
+progressEmitter.on('error', (error) => {
+  console.error('Error in optimization process:', error);
+  // You can handle the error here as per your application's requirements
+});
+
+// Listen for global completed event
+optimizationQueue.on('global:completed', async (jobId, result) => {
+  const job = await optimizationQueue.getJob(jobId);
+  console.log("Job finished");
+  console.log('result', result); // Log the result for debugging
+
+  if (job && result) {
+    let parsedResult;
+    try {
+      parsedResult = JSON.parse(result);
+    } catch (error) {
+      console.error('Error parsing result:', error);
+      return;
+    }
+
+    const { sessionId, resultParams } = parsedResult;
+    if (sessionId && resultParams) {
+      optimalParams = resultParams;
+      console.log('Optimization task completed for session:', sessionId);
+      console.log('Optimal parameters:', resultParams);
+
+      // Write the updated optimalParams to file
+      writeOptimalParamsToFile(resultParams);
+    } else {
+      console.error('Invalid result structure:', parsedResult);
+    }
+  } else {
+    console.error('Job or result is undefined');
+  }
+});
+
+
+// File path to store the last optimalParams
+const optimalParamsFilePath = path.join(__dirname, 'optimalParams.json');
+
+
+// Function to read the last optimalParams from file
+function readOptimalParamsFromFile() {
+  try {
+      const data = fs.readFileSync(optimalParamsFilePath, 'utf8');
+      return JSON.parse(data);
+  } catch (err) {
+      console.error('Error reading optimalParams from file:', err);
+      return null;
+  }
+}
+
+// Function to write the optimalParams to file
+function writeOptimalParamsToFile(optimalParams) {
+  try {
+      fs.writeFileSync(optimalParamsFilePath, JSON.stringify(optimalParams), 'utf8');
+      console.log('OptimalParams written to file successfully.');
+  } catch (err) {
+      console.error('Error writing optimalParams to file:', err);
+  }
+}
+
 
 // Global variables to store initialized parameters
 let initialParams = null;
+let optimalParams = []; 
 const ratings = {};
 let maxEnglishId = 0;
 const ratingsFile = path.join(__dirname, 'mean_responses.csv');
@@ -89,11 +191,57 @@ initializeParameters()
   .then(() => {
     console.log('Parameters initialized');
     // console.log('Initial parameters:', initialParams);
+    optimalParams = readOptimalParamsFromFile() === null ? initialParams : optimalParams;
+
+    // KICK
+    // if (readOptimalParamsFromFile() === null){
+    //   optimalParams = initialParams;
+    // }
+
+    // optimalParams = initialParams;
   })
   .catch(error => {
     console.error('Failed to initialize parameters:', error);
   });
 
+
+let allComparisons;
+
+// Function to get all comparisons from the database
+const getAllComparisons = async () => {
+  try {
+    return await Comparison.find().exec();
+  } catch (error) {
+    console.error('Error fetching comparisons:', error);
+    throw error;
+  }
+};
+
+// Fetch all comparisons when the server starts
+const initializeComparisons = async () => {
+  try {
+    allComparisons = await getAllComparisons();
+    console.log('Comparisons fetched successfully:', allComparisons.length);
+    return allComparisons;
+  } catch (error) {
+    console.error('Failed to fetch comparisons during server startup:', error);
+    // Might choose to handle this error differently based application requirements
+    process.exit(1); // Exit the process if fetching comparisons fails during startup
+  }
+};
+
+// Immediately Invoked Async Function Expression (IIFE) to start the server and initialize comparisons
+(async () => {
+  try {
+    // Call the initialization function
+    await initializeComparisons();
+
+    // Now that comparisons are initialized, server start can continue
+  } catch (error) {
+    console.error('Error starting server:', error);
+    process.exit(1); // Exit the process if an error occurs during server startup
+  }
+})();
 
 // generate a random integer number between [low, high)
 function randomInteger(low, high) {
@@ -101,56 +249,6 @@ function randomInteger(low, high) {
 }
 
 
-const optimizeBradleyTerry = async (initialParams, comparisons) => {
-  try {
-    const response = await axios.post('http://optimization:5000/optimize', {
-      initialParams: initialParams,
-      comparisons: comparisons
-    });
-    return response.data.optimal_params;
-  } catch (error) {
-    console.error('Error optimizing Bradley-Terry model:', error);
-    throw error;
-  }
-};
-
-
-
-const batchSize = 100; // Define the batch size
-let currentBatchIndex = 12; // Use git logs to track Index 
-
-// Function to get the next batch of comparisons
-function getNextBatch(preparedComparisons, totalComparisons, batchSize, currentBatchIndex) {
-  let batch = [];
-  let start = currentBatchIndex * batchSize;
-  // console.log("currentBatchIndex1", currentBatchIndex);
-  
-  while (batch.length < batchSize) {
-    let end = start + batchSize - batch.length;
-
-    if (end > totalComparisons) {
-      end = totalComparisons;
-    }
-
-    batch = batch.concat(preparedComparisons.slice(start, end));
-
-    console.log("batch", batch)
-    console.log("start", start)
-    console.log("end", end)
-
-    if (batch.length < batchSize && end === totalComparisons) {
-      start = 0; // Wrap around to the beginning
-      currentBatchIndex = 0; // Reset the batch index to 0 when wrapping around
-    }
-    // } else {
-    //   currentBatchIndex++;
-    // }
-  }
-  // console.log("currentBatchIndex2", currentBatchIndex);
-  
-
-  return { batch, currentBatchIndex };
-}
 
 // Calculate L1 based on differences in Bradley-Terry strengths
 const calculateL1 = (strength1, strength2) => {
@@ -180,9 +278,6 @@ voteRoutes.route('/start_session').post(async (req, res) => {
     // // Set all "u" attributes to false before starting the new vote session
     // await Comparison.updateMany({ "u": true }, { $set: { "u": false } });
     // console.log('All comparisons reset to "u": false');
-
-
-
 
 
     // create a new document and save the time/date that
@@ -224,33 +319,6 @@ voteRoutes.route('/start_session').post(async (req, res) => {
     // Update total number of comparisons
     const totalComparisons = preparedComparisons.length;
 
-    // Get the next batch of comparisons
-    const { batch: comparisonsBatch, currentBatchIndex: updatedBatchIndex } = getNextBatch(preparedComparisons,
-     totalComparisons, batchSize, currentBatchIndex);
-
-    // Update the currentBatchIndex for the next API call
-    currentBatchIndex = updatedBatchIndex;
-
-    console.log("currentBatchIndex", currentBatchIndex);
-
-
-    // Log for debugging
-    // console.log('Prepared comparisons:', preparedComparisons);
-    // console.log('Initial parameters:', initialParams);
-    
-
-    //  const preparedComparisonsSubset = preparedComparisons.slice(0, 1000); // Use only the first 100 comparisons
-    // const optimalParams = await optimizeBradleyTerry(initialParams, preparedComparisonsSubset);
-    // Minimize the negative log-likelihood
-    // const optimalParams = minimize(bradleyTerryLogLikelihood, initialParams, preparedComparisons);
-
-
-    const optimalParams = await optimizeBradleyTerry(initialParams, comparisonsBatch);
-
-
-    //console.log("optimalParams" , optimalParams);
-
-
     // Extract image strengths
     const imageStrengths = optimalParams.map(Math.exp);
     // const sumStrengths = numeric.sum(imageStrengths);
@@ -277,34 +345,30 @@ voteRoutes.route('/start_session').post(async (req, res) => {
     // Sort pairs by L in descending order (higher L means better comparison)
     pairs.sort((a, b) => b.L - a.L);
 
-    // Select the number of comparisons defined in the .env file
-    const selectedComparisons = pairs.slice(0, numberOfComparisonsToSelect);
-
-    console.log("Selected Comparisons:", selectedComparisons);
-    
-
-  //REPLACE DOCS WITH selectedComparisons ------------------------*--------------------------
-  // ------------------------*--------------------------
-  // ------------------------*--------------------------
-  // ------------------------*--------------------------
-  // ------------------------*--------------------------
-  // ------------------------*--------------------------
-  // ------------------------*--------------------------
-  // ------------------------*--------------------------
-  // ------------------------*--------------------------
-  // ------------------------*--------------------------
 
 
-    // // Get the comparisons that have been displayed less
-    // const selectedComparisons = await Comparison.find(
-    //   { "u": false },
-    //   { "_id": 1, "im1": 1, "im2": 1 },
-    //   { sort: { t: 1 }, limit: numberOfComparisonsToSelect }
-    // ).exec();
-    // if (!selectedComparisons) {
-    //   return res.status(400).send('Failed to select images');
-    // }
-      
+    // ***************************TEMPORARY*********************************
+
+        // Select the number of comparisons defined in the .env file
+    const firstSelectionsCount = numberOfComparisonsToSelect - 10;
+    const firstSelections = pairs.slice(0, firstSelectionsCount);
+
+    // Shuffle the remaining pairs to select 10 random pairs
+    const remainingPairs = pairs.slice(firstSelectionsCount);
+    const shuffledRemainingPairs = remainingPairs.sort(() => 0.5 - Math.random());
+    const randomSelections = shuffledRemainingPairs.slice(0, 10);
+
+    // Combine the first selections and the random selections
+    const selectedComparisons = [...firstSelections, ...randomSelections];
+
+
+// ***************************TEMPORARY*********************************
+
+
+    // // Select the number of comparisons defined in the .env file
+    // const selectedComparisons = pairs.slice(0, numberOfComparisonsToSelect);
+
+    console.log("Selected Comparisons:", selectedComparisons);    
 
 
     // imageLeftIds and imageRightIds contain the image pairs that will
@@ -469,7 +533,6 @@ voteRoutes.route('/submit/:id').post((req, res) => {
           }
           else{
             console.log('Accepted vote session successfully: ' + _id)
-            currentBatchIndex++; //Increase index counter to iterate the next batch of images
           }
         })
 
@@ -516,6 +579,31 @@ voteRoutes.route('/submit/:id').post((req, res) => {
             )
           }
         }
+
+        // Increment the number of sessions processed
+        sessionsProcessed++;
+        console.log("sessionsProcessed", sessionsProcessed);
+
+        // Check if the threshold for optimization is reached
+        if (sessionsProcessed == 1 || sessionsProcessed % 5 === 0) {        
+          // //Enqueue optimization task after every vote session
+          console.log("Parameter optimization begins ")
+          console.log("Enqueueing job with data: ", { sessionId: _id, initialParams: optimalParams, comparisons: allComparisons });
+
+          optimizationQueue.add({
+            sessionId: _id,
+            initialParams: optimalParams,
+            comparisons: allComparisons
+          }, (err, job) => {
+          if(err) {
+            console.error('Error enqueueing optimization task:', err);
+            // Handle error if needed
+          } else {
+            console.log('Optimization task enqueued successfully:', job.id);
+          }
+          });
+        };
+
         res.status(200).send('Vote session was processed successfully: ' + _id)
       }
       else {

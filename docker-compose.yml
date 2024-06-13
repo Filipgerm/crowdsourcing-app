@@ -27,6 +27,7 @@ services:
     links:
       - mongo
       - optimization
+      - redis
 
   ##############################
   ### SETUP CLIENT CONTAINER ###
@@ -115,4 +116,37 @@ services:
       dockerfile: Dockerfile
     ports:
       - "5000:5000"
+    restart: always
+
+  ##############################
+  ### SETUP QUEUE CONTAINER ###
+  ##############################
+  queue:
+    container_name: queue
+    build:
+      context: ./queue
+    # command: npm start
+    # environment:
+    #   # - MONGO_URI=mongodb://${ME_CONFIG_MONGODB_ADMINUSERNAME}:${ME_CONFIG_MONGODB_ADMINPASSWORD}@${MONGO_URI}
+    #   - NODE_ENV=${NODE_ENV}
+    volumes:
+      - ./queue:/app/queue
+      - /etc/localtime:/etc/localtime:ro
+      - /app/queue/node_modules  # Ensure node_modules is preserved
+    restart: always
+    links:
+      - optimization
+      - redis
+    # depends_on: 
+    #   - redis
+    #   - optimization
+
+  ##############################
+  ### SETUP REDIS CONTAINER ###
+  ##############################
+  redis:
+    image: redis:alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
     restart: always
