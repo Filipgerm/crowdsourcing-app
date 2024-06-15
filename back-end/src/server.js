@@ -81,7 +81,6 @@ redisClient.on('error', (err) => {
 });
 
 
-
 progressEmitter.on('progress', (iterations) => {
   console.log(`Optimization progress: ${iterations} iterations completed`);
 });
@@ -191,15 +190,9 @@ initializeParameters()
   .then(() => {
     console.log('Parameters initialized');
     // console.log('Initial parameters:', initialParams);
-    optimalParams = readOptimalParamsFromFile() === null ? initialParams : optimalParams;
-
-    // KICK
-    // if (readOptimalParamsFromFile() === null){
-    //   optimalParams = initialParams;
-    // }
-
-    // optimalParams = initialParams;
-  })
+    const fileParams = readOptimalParamsFromFile();
+    optimalParams = fileParams !== null ? fileParams : initialParams;
+    })
   .catch(error => {
     console.error('Failed to initialize parameters:', error);
   });
@@ -249,7 +242,6 @@ function randomInteger(low, high) {
 }
 
 
-
 // Calculate L1 based on differences in Bradley-Terry strengths
 const calculateL1 = (strength1, strength2) => {
   return 1 / (1 + Math.abs(strength1 - strength2));
@@ -266,6 +258,41 @@ const calculateL = (strength1, strength2, timesDisplayed) => {
   const L2 = calculateL2(timesDisplayed);
   return Math.pow(L1, 0.2) * Math.pow(L2, 0.8);
 };
+
+
+const selectComparisonsWithProbability = (pairs, numberOfComparisonsToSelect) => {
+  // Generate probabilities using an exponential decay
+  const lambda = 0.1; // Adjust this value to control the decay rate
+
+  const probabilities = pairs.map((_, i) => {
+    return Math.exp(-lambda * i);
+  });
+
+  // Normalize the probabilities
+  const sumProbabilities = probabilities.reduce((acc, val) => acc + val, 0);
+  const normalizedProbabilities = probabilities.map(p => p / sumProbabilities);
+
+  // Select comparisons based on the generated probabilities
+  const selectedComparisons = [];
+  const selectedIndices = new Set();
+
+  while (selectedComparisons.length < numberOfComparisonsToSelect) {
+    const rand = Math.random();
+    let cumulativeProbability = 0;
+    
+    for (let i = 0; i < pairs.length; i++) {
+      cumulativeProbability += normalizedProbabilities[i];
+      if (rand < cumulativeProbability && !selectedIndices.has(i)) {
+        selectedComparisons.push(pairs[i]);
+        selectedIndices.add(i);
+        break;
+      }
+    }
+  }
+
+  return selectedComparisons;
+};
+
 
 // start new vote session
 voteRoutes.route('/start_session').post(async (req, res) => {
@@ -319,6 +346,7 @@ voteRoutes.route('/start_session').post(async (req, res) => {
     // Update total number of comparisons
     const totalComparisons = preparedComparisons.length;
 
+    console.log("optimalParams in the endpoint", optimalParams);
     // Extract image strengths
     const imageStrengths = optimalParams.map(Math.exp);
     // const sumStrengths = numeric.sum(imageStrengths);
@@ -346,20 +374,24 @@ voteRoutes.route('/start_session').post(async (req, res) => {
     pairs.sort((a, b) => b.L - a.L);
 
 
+    // Select comparisons with probability
+    const selectedComparisons = selectComparisonsWithProbability(pairs, numberOfComparisonsToSelect);
+
+
 
     // ***************************TEMPORARY*********************************
 
-        // Select the number of comparisons defined in the .env file
-    const firstSelectionsCount = numberOfComparisonsToSelect - 10;
-    const firstSelections = pairs.slice(0, firstSelectionsCount);
+    //     // Select the number of comparisons defined in the .env file
+    // const firstSelectionsCount = numberOfComparisonsToSelect - 10;
+    // const firstSelections = pairs.slice(0, firstSelectionsCount);
 
-    // Shuffle the remaining pairs to select 10 random pairs
-    const remainingPairs = pairs.slice(firstSelectionsCount);
-    const shuffledRemainingPairs = remainingPairs.sort(() => 0.5 - Math.random());
-    const randomSelections = shuffledRemainingPairs.slice(0, 10);
+    // // Shuffle the remaining pairs to select 10 random pairs
+    // const remainingPairs = pairs.slice(firstSelectionsCount);
+    // const shuffledRemainingPairs = remainingPairs.sort(() => 0.5 - Math.random());
+    // const randomSelections = shuffledRemainingPairs.slice(0, 10);
 
-    // Combine the first selections and the random selections
-    const selectedComparisons = [...firstSelections, ...randomSelections];
+    // // Combine the first selections and the random selections
+    // const selectedComparisons = [...firstSelections, ...randomSelections];
 
 
 // ***************************TEMPORARY*********************************
