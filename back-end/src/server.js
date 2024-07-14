@@ -241,10 +241,34 @@ function randomInteger(low, high) {
   return Math.floor(Math.random() * (high - low) + low)
 }
 
+const calculateGaussianProbability = (strength1, strength2, sigma) => {
+  const distance = Math.abs(strength1 - strength2);
+  return Math.exp(-Math.pow(distance, 2) / (2 * Math.pow(sigma, 2)));
+};
+
+// Function to select comparisons based on Gaussian probabilities
+const selectComparisonsWithProbability = (pairs, numberOfComparisonsToSelect) => {
+  // Compute cumulative probabilities
+  const cumulativeProbabilities = pairs.reduce((acc, pair, index) => {
+    const cumulativeProbability = (index === 0) ? pair.probability : acc[index - 1].cumulativeProbability + pair.probability;
+    acc.push({ ...pair, cumulativeProbability });
+    return acc;
+  }, []);
+
+  // Select pairs based on cumulative probabilities
+  const selectedComparisons = [];
+  for (let i = 0; i < numberOfComparisonsToSelect; i++) {
+    const randomValue = Math.random();
+    const selectedPair = cumulativeProbabilities.find(pair => randomValue <= pair.cumulativeProbability);
+    selectedComparisons.push(selectedPair);
+  }
+
+  return selectedComparisons;
+};
 
 // Calculate L1 based on differences in Bradley-Terry strengths
 const calculateL1 = (strength1, strength2) => {
-  return 1 / (1 + Math.abs(strength1 - strength2));
+  return calculateGaussianProbability(strength1, strength2, 1);
 };
 
 // Calculate L2 based on the number of times a comparison has been displayed
@@ -259,41 +283,6 @@ const calculateL = (strength1, strength2, timesDisplayed) => {
   return Math.pow(L1, 0.2) * Math.pow(L2, 0.8);
 };
 
-
-const selectComparisonsWithProbability = (pairs, numberOfComparisonsToSelect) => {
-  // Generate probabilities using an exponential decay
-  const lambda = 0.1; // Adjust this value to control the decay rate
-
-  const probabilities = pairs.map((_, i) => {
-    return Math.exp(-lambda * i);
-  });
-
-  // Normalize the probabilities
-  const sumProbabilities = probabilities.reduce((acc, val) => acc + val, 0);
-  const normalizedProbabilities = probabilities.map(p => p / sumProbabilities);
-
-  // Select comparisons based on the generated probabilities
-  const selectedComparisons = [];
-  const selectedIndices = new Set();
-
-  while (selectedComparisons.length < numberOfComparisonsToSelect) {
-    const rand = Math.random();
-    let cumulativeProbability = 0;
-    
-    for (let i = 0; i < pairs.length; i++) {
-      cumulativeProbability += normalizedProbabilities[i];
-      if (rand < cumulativeProbability && !selectedIndices.has(i)) {
-        selectedComparisons.push(pairs[i]);
-        selectedIndices.add(i);
-        break;
-      }
-    }
-  }
-
-  return selectedComparisons;
-};
-
-
 // start new vote session
 voteRoutes.route('/start_session').post(async (req, res) => {
 
@@ -305,7 +294,6 @@ voteRoutes.route('/start_session').post(async (req, res) => {
     // // Set all "u" attributes to false before starting the new vote session
     // await Comparison.updateMany({ "u": true }, { $set: { "u": false } });
     // console.log('All comparisons reset to "u": false');
-
 
     // create a new document and save the time/date that
     // the vote session started
@@ -367,17 +355,20 @@ voteRoutes.route('/start_session').post(async (req, res) => {
       const strength1 = normalizedStrengths[imageIdToIndex[comp.im1]];
       const strength2 = normalizedStrengths[imageIdToIndex[comp.im2]];
       const L = calculateL(strength1, strength2, comp.t);
-      pairs.push({ im1: comp.im1, im2: comp.im2, L });
+      pairs.push({ im1: comp.im1, im2: comp.im2, L});
     });
 
-    // Sort pairs by L in descending order (higher L means better comparison)
-    pairs.sort((a, b) => b.L - a.L);
+    // Calculate the total sum of L values
+    const totalL = pairs.reduce((acc, pair) => acc + pair.L, 0);
+
+    // Normalize L values to get probabilities
+    const pairsWithProbability = pairs.map(pair => ({
+      ...pair,
+      probability: pair.L / totalL
+    }));
 
 
-    // Select comparisons with probability
-    const selectedComparisons = selectComparisonsWithProbability(pairs, numberOfComparisonsToSelect);
-
-
+    const selectedComparisons = selectComparisonsWithProbability(pairsWithProbability, numberOfComparisonsToSelect);
 
     // ***************************TEMPORARY*********************************
 
