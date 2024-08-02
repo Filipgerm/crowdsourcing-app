@@ -3,7 +3,7 @@
 # Define source directories and the destination directory
 source_english_dir="../../../website-aesthetics-datasets/rating-based-dataset/images/english"
 source_foreign_dir="../../../website-aesthetics-datasets/rating-based-dataset/images/foreign"
-websites_dir="../../../website-aesthetics-datasets/rating-based-dataset/images/websites1"
+websites_dir="../../../website-aesthetics-datasets/rating-based-dataset/images/websites"
 
 # Create the destination directory if it doesn't exist
 mkdir -p "$websites_dir"

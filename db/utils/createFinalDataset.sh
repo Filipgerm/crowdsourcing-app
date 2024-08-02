@@ -10,7 +10,7 @@ def copy_images(csv_filename):
     # Define directories
     source_english_dir = "../../../website-aesthetics-datasets/rating-based-dataset/images/english"
     source_foreign_dir = "../../../website-aesthetics-datasets/rating-based-dataset/images/foreign"
-    websites_dir = "../../../website-aesthetics-datasets/rating-based-dataset/images/websites"
+    websites_dir = "../../../website-aesthetics-datasets/rating-based-dataset/images/numericalwebsites"
     
     # Create the websites directory if it doesn't exist
     if not os.path.exists(websites_dir):

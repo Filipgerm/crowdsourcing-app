@@ -336,7 +336,9 @@ voteRoutes.route('/start_session').post(async (req, res) => {
 
     console.log("optimalParams in the endpoint", optimalParams);
     // Extract image strengths
-    const imageStrengths = optimalParams.map(Math.exp);
+    // const imageStrengths = optimalParams.map(Math.exp); Needs to be implemented when enough data have been calculated for all comparisons.
+    const imageStrengths = initialParams.map(Math.exp);
+
     // const sumStrengths = numeric.sum(imageStrengths);
     const sumStrengths = imageStrengths.reduce((acc, val) => acc + val, 0);
     const normalizedStrengths = imageStrengths.map(s => s / sumStrengths);
@@ -368,28 +370,7 @@ voteRoutes.route('/start_session').post(async (req, res) => {
     }));
 
 
-    const selectedComparisons = selectComparisonsWithProbability(pairsWithProbability, numberOfComparisonsToSelect);
-
-    // ***************************TEMPORARY*********************************
-
-    //     // Select the number of comparisons defined in the .env file
-    // const firstSelectionsCount = numberOfComparisonsToSelect - 10;
-    // const firstSelections = pairs.slice(0, firstSelectionsCount);
-
-    // // Shuffle the remaining pairs to select 10 random pairs
-    // const remainingPairs = pairs.slice(firstSelectionsCount);
-    // const shuffledRemainingPairs = remainingPairs.sort(() => 0.5 - Math.random());
-    // const randomSelections = shuffledRemainingPairs.slice(0, 10);
-
-    // // Combine the first selections and the random selections
-    // const selectedComparisons = [...firstSelections, ...randomSelections];
-
-
-// ***************************TEMPORARY*********************************
-
-
-    // // Select the number of comparisons defined in the .env file
-    // const selectedComparisons = pairs.slice(0, numberOfComparisonsToSelect);
+    const selectedComparisons = selectComparisonsWithProbability(pairsWithProbability, numberOfComparisonsToSelect);;
 
     console.log("Selected Comparisons:", selectedComparisons);    
 
