@@ -246,29 +246,25 @@ const calculateGaussianProbability = (strength1, strength2, sigma) => {
   return Math.exp(-Math.pow(distance, 2) / (2 * Math.pow(sigma, 2)));
 };
 
-// Function to select comparisons based on Gaussian probabilities
-const selectComparisonsWithProbability = (pairs, numberOfComparisonsToSelect) => {
-  // Compute cumulative probabilities
-  const cumulativeProbabilities = pairs.reduce((acc, pair, index) => {
-    const cumulativeProbability = (index === 0) ? pair.probability : acc[index - 1].cumulativeProbability + pair.probability;
-    acc.push({ ...pair, cumulativeProbability });
-    return acc;
-  }, []);
+const gaussianWeight = (mean, stdDev, x) => {
+  return Math.exp(-Math.pow(x - mean, 2) / (2 * Math.pow(stdDev, 2)));
+};
 
-  // Select pairs based on cumulative probabilities
-  const selectedComparisons = [];
-  for (let i = 0; i < numberOfComparisonsToSelect; i++) {
-    const randomValue = Math.random();
-    const selectedPair = cumulativeProbabilities.find(pair => randomValue <= pair.cumulativeProbability);
-    selectedComparisons.push(selectedPair);
+const weightedRandomSample = (finalPairs) => {
+  const randomValue = Math.random();
+  let cumulativeProbability = 0;
+
+  for (let pair of finalPairs) {
+    cumulativeProbability += pair.finalProbability;
+    if (randomValue <= cumulativeProbability) {
+      return pair;
+    }
   }
-
-  return selectedComparisons;
 };
 
 // Calculate L1 based on differences in Bradley-Terry strengths
 const calculateL1 = (strength1, strength2) => {
-  return calculateGaussianProbability(strength1, strength2, 1);
+  return 1 / (1 + Math.abs(strength1 - strength2));
 };
 
 // Calculate L2 based on the number of times a comparison has been displayed
@@ -343,14 +339,6 @@ voteRoutes.route('/start_session').post(async (req, res) => {
     const sumStrengths = imageStrengths.reduce((acc, val) => acc + val, 0);
     const normalizedStrengths = imageStrengths.map(s => s / sumStrengths);
 
-    // Map indices back to image IDs
-    const imageStrengthsDf = imageIds.map((id, i) => ({
-      Image: id,
-      Strength: normalizedStrengths[i]
-    }));
-
-    //console.log("Image Strengths:", imageStrengthsDf);
-
     // Calculate L for each pair
     let pairs = [];
     comparisons.forEach(comp => {
@@ -369,8 +357,28 @@ voteRoutes.route('/start_session').post(async (req, res) => {
       probability: pair.L / totalL
     }));
 
+    // Apply Gaussian distribution to normalized probabilities
+    const mean = 0.5; // Assume a mean around the center of the distribution
+    const stdDev = 0.2; // Assume a smaller stdDev to focus around the mean
 
-    const selectedComparisons = selectComparisonsWithProbability(pairsWithProbability, numberOfComparisonsToSelect);;
+    const pairsWithGaussianProbability = pairsWithProbability.map(pair => ({
+      ...pair,
+      gaussianProbability: gaussianWeight(mean, stdDev, pair.probability)
+    }));
+
+    // Normalize again after applying Gaussian weights
+    const totalGaussian = pairsWithGaussianProbability.reduce((acc, pair) => acc + pair.gaussianProbability, 0);
+
+    const finalPairs = pairsWithGaussianProbability.map(pair => ({
+      ...pair,
+      finalProbability: pair.gaussianProbability / totalGaussian
+    }));
+
+    // To select a specific number of pairs
+    const selectedComparisons = [];
+    for (let i = 0; i < numberOfComparisonsToSelect; i++) {
+      selectedComparisons.push(weightedRandomSample(finalPairs));
+    }
 
     console.log("Selected Comparisons:", selectedComparisons);    
 
