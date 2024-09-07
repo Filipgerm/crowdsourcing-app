@@ -358,8 +358,8 @@ voteRoutes.route('/start_session').post(async (req, res) => {
     }));
 
     // Apply Gaussian distribution to normalized probabilities
-    const mean = 0.5; // Assume a mean around the center of the distribution
-    const stdDev = 0.2; // Assume a smaller stdDev to focus around the mean
+    const mean = 1.11 * 10^(-5); // mean towards the top of the distribution
+    const stdDev = 1 * 10^(-6); //  stdDev to focus around the mean
 
     const pairsWithGaussianProbability = pairsWithProbability.map(pair => ({
       ...pair,
@@ -380,7 +380,7 @@ voteRoutes.route('/start_session').post(async (req, res) => {
       selectedComparisons.push(weightedRandomSample(finalPairs));
     }
 
-    console.log("Selected Comparisons:", selectedComparisons);    
+    // console.log("Selected Comparisons:", selectedComparisons);    
 
 
     // imageLeftIds and imageRightIds contain the image pairs that will
